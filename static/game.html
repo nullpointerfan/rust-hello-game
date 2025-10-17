@@ -24,6 +24,35 @@
         <button onclick="move('down')">Down</button>
     </div>
     <script>
+        let ws;
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://127.0.0.1:8080/ws');
+
+            ws.onopen = function(event) {
+                console.log('WebSocket connected');
+                updateMap(); // Initial load
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    updateMapFromData(data.character, data.map);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            ws.onclose = function(event) {
+                console.log('WebSocket closed, reconnecting...');
+                setTimeout(connectWebSocket, 1000);
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+
         async function updateMap() {
             try {
                 const [mapResponse, charResponse] = await Promise.all([
@@ -37,28 +66,31 @@
 
                 const map = await mapResponse.json();
                 const char = await charResponse.json();
-
-                const mapDiv = document.getElementById('map');
-                mapDiv.innerHTML = '';
-
-                for (let y = 0; y < map.height; y++) {
-                    for (let x = 0; x < map.width; x++) {
-                        const tile = document.createElement('div');
-                        tile.className = 'tile ' + map.tiles[y][x];
-                        if (x === char.x && y === char.y) {
-                            tile.className += ' player';
-                            tile.innerText = 'P';
-                        } else if (map.tiles[y][x] === 'wall') {
-                            tile.innerText = '#';
-                        }
-                        mapDiv.appendChild(tile);
-                    }
-                }
-
-                document.getElementById('character').innerText = `Character at (${char.x}, ${char.y}) - Health: ${char.health}`;
+                updateMapFromData(char, map);
             } catch (error) {
                 console.error('Error updating map:', error);
             }
+        }
+
+        function updateMapFromData(char, map) {
+            const mapDiv = document.getElementById('map');
+            mapDiv.innerHTML = '';
+
+            for (let y = 0; y < map.height; y++) {
+                for (let x = 0; x < map.width; x++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'tile ' + map.tiles[y][x];
+                    if (x === char.x && y === char.y) {
+                        tile.className += ' player';
+                        tile.innerText = 'P';
+                    } else if (map.tiles[y][x] === 'wall') {
+                        tile.innerText = '#';
+                    }
+                    mapDiv.appendChild(tile);
+                }
+            }
+
+            document.getElementById('character').innerText = `Character at (${char.x}, ${char.y}) - Health: ${char.health}`;
         }
 
         async function move(direction) {
@@ -73,13 +105,13 @@
                     throw new Error('Move failed');
                 }
 
-                await updateMap();
+                // No need to manually update map, WebSocket will handle it
             } catch (error) {
                 console.error('Error moving:', error);
             }
         }
 
-        updateMap();
+        connectWebSocket();
     </script>
 </body>
 </html>

@@ -1,9 +1,10 @@
 use actix_web::{web, Result, HttpResponse};
+use actix_web_actors::ws;
 use serde::Deserialize;
-use std::sync::Mutex;
-use crate::game::GameState;
+use std::sync::{Arc, Mutex};
+use crate::game::{GameState, GameWebSocket};
 
-pub type AppState = Mutex<GameState>;
+pub type AppState = Arc<Mutex<GameState>>;
 
 pub async fn hello() -> Result<String> {
     Ok("Hello world!".to_string())
@@ -41,4 +42,13 @@ pub async fn game_page() -> Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok()
         .content_type("text/html")
         .body(include_str!("../static/game.html")))
+}
+
+pub async fn websocket(
+    req: actix_web::HttpRequest,
+    stream: web::Payload,
+    data: web::Data<AppState>,
+) -> Result<impl actix_web::Responder> {
+    let game_state = data.get_ref().clone();
+    ws::start(GameWebSocket { game_state }, &req, stream)
 }
