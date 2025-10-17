@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use actix::prelude::*;
 use actix_web_actors::ws;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Character {
@@ -61,10 +60,6 @@ impl GameState {
             self.players.insert(player_id, character);
             self.notify_clients();
         }
-    }
-
-    pub fn generate_player_id() -> String {
-        Uuid::new_v4().to_string()
     }
 
     pub fn move_character(&mut self, player_id: &str, direction: &str) -> bool {

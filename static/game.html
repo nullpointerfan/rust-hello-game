@@ -5,18 +5,21 @@
     <style>
         body { font-family: Arial, sans-serif; text-align: center; }
         #character { font-size: 24px; margin: 20px; }
-        #map { display: grid; grid-template-columns: repeat(10, 30px); grid-template-rows: repeat(10, 30px); margin: 20px auto; border: 1px solid black; width: 300px; height: 300px; }
-        .tile { width: 30px; height: 30px; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; font-size: 12px; }
-        .empty { background-color: #f0f0f0; }
-        .wall { background-color: #666; }
-        .player { background-color: #ff0; }
+        #map {
+            display: block;
+            width: 800px;
+            height: 600px;
+            margin: 20px auto;
+            border: 1px solid black;
+            background: linear-gradient(135deg, #87ceeb 0%, #98fb98 100%);
+        }
         button { margin: 10px; padding: 10px 20px; }
     </style>
 </head>
 <body>
     <h1>Simple Character Game</h1>
     <div id="character">Character at (0, 0) - Health: 100</div>
-    <div id="map"></div>
+    <canvas id="map" width="800" height="600"></canvas>
     <div>
         <button onclick="move('up')">Up</button><br>
         <button onclick="move('left')">Left</button>
@@ -91,28 +94,73 @@
         }
 
         function updateMapFromData(players, map) {
-            const mapDiv = document.getElementById('map');
-            mapDiv.innerHTML = '';
+            const canvas = document.getElementById('map');
+            const ctx = canvas.getContext('2d');
 
+            // Очистка canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const tileWidth = 40;
+            const tileHeight = 20;
+            const offsetX = canvas.width / 2;
+            const offsetY = canvas.height / 2 - 100;
+
+            // Рисуем тайлы
             for (let y = 0; y < map.height; y++) {
                 for (let x = 0; x < map.width; x++) {
-                    const tile = document.createElement('div');
-                    tile.className = 'tile ' + map.tiles[y][x];
+                    const isoX = (x - y) * (tileWidth / 2) + offsetX;
+                    const isoY = (x + y) * (tileHeight / 2) + offsetY;
 
-                    let isPlayerHere = false;
+                    // Рисуем ромб
+                    ctx.beginPath();
+                    ctx.moveTo(isoX, isoY - tileHeight / 2);
+                    ctx.lineTo(isoX + tileWidth / 2, isoY);
+                    ctx.lineTo(isoX, isoY + tileHeight / 2);
+                    ctx.lineTo(isoX - tileWidth / 2, isoY);
+                    ctx.closePath();
+
+                    // Цвет тайла
+                    if (map.tiles[y][x] === 'wall') {
+                        ctx.fillStyle = '#666';
+                        ctx.strokeStyle = '#333';
+                    } else {
+                        ctx.fillStyle = '#90ee90';
+                        ctx.strokeStyle = '#32cd32';
+                    }
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Проверяем, есть ли игрок на этой клетке
+                    let playerHere = null;
                     for (const [id, char] of Object.entries(players)) {
                         if (x === char.x && y === char.y) {
-                            tile.className += ' player';
-                            tile.innerText = id === playerId ? 'P' : 'O'; // P for current player, O for others
-                            isPlayerHere = true;
+                            playerHere = id;
                             break;
                         }
                     }
 
-                    if (!isPlayerHere && map.tiles[y][x] === 'wall') {
-                        tile.innerText = '#';
+                    if (playerHere) {
+                        // Рисуем игрока
+                        ctx.beginPath();
+                        ctx.arc(isoX, isoY, 12, 0, 2 * Math.PI);
+                        ctx.fillStyle = playerHere === playerId ? '#ffd700' : '#ff6b6b';
+                        ctx.fill();
+                        ctx.strokeStyle = '#000';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+
+                        // Текст игрока
+                        ctx.fillStyle = '#000';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(playerHere === playerId ? 'P' : 'O', isoX, isoY + 4);
+                    } else if (map.tiles[y][x] === 'wall') {
+                        // Стена
+                        ctx.fillStyle = '#000';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('#', isoX, isoY + 5);
                     }
-                    mapDiv.appendChild(tile);
                 }
             }
 

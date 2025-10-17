@@ -4,7 +4,7 @@ mod web;
 use actix_web::{App, HttpServer};
 use actix_web::web::{Data, get, post};
 use std::sync::Arc;
-use crate::game::{GameState, Character, create_default_map};
+use crate::game::{GameState, create_default_map};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
