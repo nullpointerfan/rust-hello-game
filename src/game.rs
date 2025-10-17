@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use actix::prelude::*;
 use actix_web_actors::ws;
+use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Character {
@@ -43,35 +45,55 @@ impl Map {
 
 #[derive(Clone)]
 pub struct GameState {
-    pub character: Character,
+    pub players: HashMap<String, Character>,
     pub map: Map,
     pub clients: Vec<actix::Addr<GameWebSocket>>,
 }
 
 impl GameState {
-    pub fn new(character: Character, map: Map) -> Self {
-        Self { character, map, clients: Vec::new() }
+    pub fn new(map: Map) -> Self {
+        Self { players: HashMap::new(), map, clients: Vec::new() }
     }
 
-    pub fn move_character(&mut self, direction: &str) -> bool {
-        let mut new_x = self.character.x;
-        let mut new_y = self.character.y;
-
-        match direction {
-            "up" => new_y -= 1,
-            "down" => new_y += 1,
-            "left" => new_x -= 1,
-            "right" => new_x += 1,
-            _ => return false,
-        }
-
-        if self.map.is_walkable(new_x, new_y) {
-            self.character.move_to(new_x, new_y);
+    pub fn add_player(&mut self, player_id: String) {
+        if !self.players.contains_key(&player_id) {
+            let character = Character::new(0, 0, 100);
+            self.players.insert(player_id, character);
             self.notify_clients();
-            true
+        }
+    }
+
+    pub fn generate_player_id() -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    pub fn move_character(&mut self, player_id: &str, direction: &str) -> bool {
+        if let Some(character) = self.players.get_mut(player_id) {
+            let mut new_x = character.x;
+            let mut new_y = character.y;
+
+            match direction {
+                "up" => new_y -= 1,
+                "down" => new_y += 1,
+                "left" => new_x -= 1,
+                "right" => new_x += 1,
+                _ => return false,
+            }
+
+            if self.map.is_walkable(new_x, new_y) {
+                character.move_to(new_x, new_y);
+                self.notify_clients();
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
+    }
+
+    pub fn get_character(&self, player_id: &str) -> Option<&Character> {
+        self.players.get(player_id)
     }
 
     pub fn add_client(&mut self, addr: actix::Addr<GameWebSocket>) {
@@ -85,7 +107,7 @@ impl GameState {
     pub fn notify_clients(&self) {
         for client in &self.clients {
             let _ = client.do_send(UpdateGameState {
-                character: self.character.clone(),
+                players: self.players.clone(),
                 map: self.map.clone(),
             });
         }
@@ -182,14 +204,11 @@ mod tests {
 
     #[test]
     fn test_game_state_new() {
-        let character = Character::new(1, 2, 50);
         let tiles = vec![vec!["empty".to_string()]];
-        let map = Map::new(1, 1, tiles);
-        let game_state = GameState::new(character.clone(), map.clone());
+        let map = Map::new(1, 1, tiles.clone());
+        let game_state = GameState::new(map.clone());
 
-        assert_eq!(game_state.character.x, character.x);
-        assert_eq!(game_state.character.y, character.y);
-        assert_eq!(game_state.character.health, character.health);
+        assert!(game_state.players.is_empty());
         assert_eq!(game_state.map.width, map.width);
         assert_eq!(game_state.map.height, map.height);
         assert!(game_state.clients.is_empty());
@@ -197,47 +216,59 @@ mod tests {
 
     #[test]
     fn test_game_state_move_character_valid() {
-        let character = Character::new(0, 0, 100);
         let tiles = vec![
             vec!["empty".to_string(), "empty".to_string()],
             vec!["empty".to_string(), "empty".to_string()],
         ];
         let map = Map::new(2, 2, tiles);
-        let mut game_state = GameState::new(character, map);
+        let mut game_state = GameState::new(map);
+        let player_id = "player1".to_string();
+        game_state.add_player(player_id.clone());
 
-        assert!(game_state.move_character("right"));
-        assert_eq!(game_state.character.x, 1);
-        assert_eq!(game_state.character.y, 0);
+        assert!(game_state.move_character(&player_id, "right"));
+        if let Some(char) = game_state.players.get(&player_id) {
+            assert_eq!(char.x, 1);
+            assert_eq!(char.y, 0);
+        }
 
-        assert!(game_state.move_character("down"));
-        assert_eq!(game_state.character.x, 1);
-        assert_eq!(game_state.character.y, 1);
+        assert!(game_state.move_character(&player_id, "down"));
+        if let Some(char) = game_state.players.get(&player_id) {
+            assert_eq!(char.x, 1);
+            assert_eq!(char.y, 1);
+        }
     }
 
     #[test]
     fn test_game_state_move_character_invalid() {
-        let character = Character::new(0, 0, 100);
         let tiles = vec![
             vec!["wall".to_string(), "wall".to_string()],
             vec!["empty".to_string(), "empty".to_string()],
         ];
         let map = Map::new(2, 2, tiles);
-        let mut game_state = GameState::new(character, map);
+        let mut game_state = GameState::new(map);
+        let player_id = "player1".to_string();
+        game_state.add_player(player_id.clone());
 
         // Try to move into wall - should fail
-        assert!(!game_state.move_character("right"));
-        assert_eq!(game_state.character.x, 0);
-        assert_eq!(game_state.character.y, 0);
+        assert!(!game_state.move_character(&player_id, "right"));
+        if let Some(char) = game_state.players.get(&player_id) {
+            assert_eq!(char.x, 0);
+            assert_eq!(char.y, 0);
+        }
 
         // Try invalid direction - should fail
-        assert!(!game_state.move_character("diagonal"));
-        assert_eq!(game_state.character.x, 0);
-        assert_eq!(game_state.character.y, 0);
+        assert!(!game_state.move_character(&player_id, "diagonal"));
+        if let Some(char) = game_state.players.get(&player_id) {
+            assert_eq!(char.x, 0);
+            assert_eq!(char.y, 0);
+        }
 
         // Try to move out of bounds - should fail
-        assert!(!game_state.move_character("left"));
-        assert_eq!(game_state.character.x, 0);
-        assert_eq!(game_state.character.y, 0);
+        assert!(!game_state.move_character(&player_id, "left"));
+        if let Some(char) = game_state.players.get(&player_id) {
+            assert_eq!(char.x, 0);
+            assert_eq!(char.y, 0);
+        }
     }
 
     #[test]
@@ -258,12 +289,13 @@ mod tests {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UpdateGameState {
-    pub character: Character,
+    pub players: HashMap<String, Character>,
     pub map: Map,
 }
 
 pub struct GameWebSocket {
     pub game_state: std::sync::Arc<std::sync::Mutex<GameState>>,
+    pub player_id: Option<String>,
 }
 
 impl Actor for GameWebSocket {
@@ -289,7 +321,7 @@ impl Handler<UpdateGameState> for GameWebSocket {
 
     fn handle(&mut self, msg: UpdateGameState, ctx: &mut Self::Context) {
         let data = serde_json::to_string(&serde_json::json!({
-            "character": msg.character,
+            "players": msg.players,
             "map": msg.map
         })).unwrap();
         ctx.text(data);
@@ -301,7 +333,17 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameWebSocket {
         match msg {
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
             Ok(ws::Message::Text(text)) => {
-                // Handle incoming messages if needed
+                if self.player_id.is_none() {
+                    // First message should contain player ID
+                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(player_id) = data.get("playerId").and_then(|v| v.as_str()) {
+                            self.player_id = Some(player_id.to_string());
+                            if let Ok(mut game_state) = self.game_state.lock() {
+                                game_state.add_player(player_id.to_string());
+                            }
+                        }
+                    }
+                }
                 println!("Received: {}", text);
             }
             Ok(ws::Message::Binary(bin)) => ctx.binary(bin),

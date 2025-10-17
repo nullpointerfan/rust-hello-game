@@ -19,9 +19,12 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_get_character() {
-        let character = Character::new(5, 10, 100);
         let map = create_default_map();
-        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(character, map)));
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
+        {
+            let mut gs = game_state.lock().unwrap();
+            gs.add_player("test_player".to_string());
+        }
         let app_data = web::Data::new(game_state);
 
         let app = test::init_service(
@@ -30,21 +33,43 @@ mod tests {
                 .route("/character", web::get().to(get_character))
         ).await;
 
-        let req = test::TestRequest::get().uri("/character").to_request();
+        let req = test::TestRequest::get()
+            .uri("/character")
+            .insert_header(("x-player-id", "test_player"))
+            .to_request();
         let resp = test::call_service(&app, req).await;
 
         assert!(resp.status().is_success());
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["x"], 5);
-        assert_eq!(body["y"], 10);
+        assert_eq!(body["x"], 0);
+        assert_eq!(body["y"], 0);
         assert_eq!(body["health"], 100);
     }
 
     #[actix_rt::test]
-    async fn test_get_map() {
-        let character = Character::new(0, 0, 100);
+    async fn test_get_character_missing_header() {
         let map = create_default_map();
-        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(character, map)));
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
+        let app_data = web::Data::new(game_state);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_data)
+                .route("/character", web::get().to(get_character))
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/character")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_map() {
+        let map = create_default_map();
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
         let app_data = web::Data::new(game_state);
 
         let app = test::init_service(
@@ -65,9 +90,38 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_move_character_valid() {
-        let character = Character::new(0, 0, 100);
         let map = create_default_map();
-        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(character, map)));
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
+        {
+            let mut gs = game_state.lock().unwrap();
+            gs.add_player("test_player".to_string());
+        }
+        let app_data = web::Data::new(game_state);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_data)
+                .route("/move", web::post().to(move_character))
+        ).await;
+
+        let req = test::TestRequest::post()
+            .uri("/move")
+            .insert_header(("x-player-id", "test_player"))
+            .set_json(&serde_json::json!({"direction": "down"}))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert!(resp.status().is_success());
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["x"], 0);
+        assert_eq!(body["y"], 1);
+        assert_eq!(body["health"], 100);
+    }
+
+    #[actix_rt::test]
+    async fn test_move_character_missing_header() {
+        let map = create_default_map();
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
         let app_data = web::Data::new(game_state);
 
         let app = test::init_service(
@@ -82,18 +136,17 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
 
-        assert!(resp.status().is_success());
-        let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["x"], 0);
-        assert_eq!(body["y"], 1);
-        assert_eq!(body["health"], 100);
+        assert_eq!(resp.status(), 400);
     }
 
     #[actix_rt::test]
     async fn test_move_character_invalid() {
-        let character = Character::new(0, 0, 100);
         let map = create_default_map();
-        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(character, map)));
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
+        {
+            let mut gs = game_state.lock().unwrap();
+            gs.add_player("test_player".to_string());
+        }
         let app_data = web::Data::new(game_state);
 
         let app = test::init_service(
@@ -104,6 +157,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/move")
+            .insert_header(("x-player-id", "test_player"))
             .set_json(&serde_json::json!({"direction": "invalid"}))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -115,9 +169,8 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_websocket_route_exists() {
-        let character = Character::new(0, 0, 100);
         let map = create_default_map();
-        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(character, map)));
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
         let app_data = web::Data::new(game_state);
 
         let app = test::init_service(
@@ -132,5 +185,65 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_rt::test]
+    async fn test_websocket_missing_header() {
+        let map = create_default_map();
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
+        let app_data = web::Data::new(game_state);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_data)
+                .route("/ws", web::get().to(hello_cargo::web::websocket))
+        ).await;
+
+        let req = test::TestRequest::get().uri("/ws").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_rt::test]
+    async fn test_multiple_players() {
+        let map = create_default_map();
+        let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
+        {
+            let mut gs = game_state.lock().unwrap();
+            gs.add_player("player1".to_string());
+            gs.add_player("player2".to_string());
+        }
+        let app_data = web::Data::new(game_state);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_data)
+                .route("/character", web::get().to(get_character))
+        ).await;
+
+        // Test player1
+        let req1 = test::TestRequest::get()
+            .uri("/character")
+            .insert_header(("x-player-id", "player1"))
+            .to_request();
+        let resp1 = test::call_service(&app, req1).await;
+        assert!(resp1.status().is_success());
+
+        // Test player2
+        let req2 = test::TestRequest::get()
+            .uri("/character")
+            .insert_header(("x-player-id", "player2"))
+            .to_request();
+        let resp2 = test::call_service(&app, req2).await;
+        assert!(resp2.status().is_success());
+
+        // Test non-existent player
+        let req3 = test::TestRequest::get()
+            .uri("/character")
+            .insert_header(("x-player-id", "player3"))
+            .to_request();
+        let resp3 = test::call_service(&app, req3).await;
+        assert_eq!(resp3.status(), 404);
     }
 }

@@ -8,9 +8,8 @@ use crate::game::{GameState, Character, create_default_map};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let character = Character::new(0, 0, 100);
     let map = create_default_map();
-    let game_state = Arc::new(std::sync::Mutex::new(GameState::new(character, map)));
+    let game_state = Arc::new(std::sync::Mutex::new(GameState::new(map)));
 
     let app_data = Data::new(game_state);
 

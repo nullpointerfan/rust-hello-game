@@ -25,19 +25,35 @@
     </div>
     <script>
         let ws;
+        let playerId = localStorage.getItem('playerId');
+
+        if (!playerId) {
+            playerId = generatePlayerId();
+            localStorage.setItem('playerId', playerId);
+        }
+
+        function generatePlayerId() {
+            return 'player_' + Math.random().toString(36).substr(2, 9);
+        }
 
         function connectWebSocket() {
-            ws = new WebSocket('ws://127.0.0.1:8080/ws');
+            ws = new WebSocket('ws://127.0.0.1:8080/ws', [], {
+                headers: { 'x-player-id': playerId }
+            });
 
+            // WebSocket constructor doesn't support headers in browser
+            // We need to use a different approach - send the player ID in the first message
             ws.onopen = function(event) {
-                console.log('WebSocket connected');
-                updateMap(); // Initial load
+                console.log('WebSocket connected, sending player ID:', playerId);
+                ws.send(JSON.stringify({ playerId: playerId }));
+                // Wait a bit for the server to process the player ID before updating map
+                setTimeout(updateMap, 100);
             };
 
             ws.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
-                    updateMapFromData(data.character, data.map);
+                    updateMapFromData(data.players, data.map);
                 } catch (error) {
                     console.error('Error parsing WebSocket message:', error);
                 }
@@ -57,7 +73,9 @@
             try {
                 const [mapResponse, charResponse] = await Promise.all([
                     fetch('/map'),
-                    fetch('/character')
+                    fetch('/character', {
+                        headers: { 'x-player-id': playerId }
+                    })
                 ]);
 
                 if (!mapResponse.ok || !charResponse.ok) {
@@ -66,13 +84,13 @@
 
                 const map = await mapResponse.json();
                 const char = await charResponse.json();
-                updateMapFromData(char, map);
+                updateMapFromData({ [playerId]: char }, map);
             } catch (error) {
                 console.error('Error updating map:', error);
             }
         }
 
-        function updateMapFromData(char, map) {
+        function updateMapFromData(players, map) {
             const mapDiv = document.getElementById('map');
             mapDiv.innerHTML = '';
 
@@ -80,24 +98,38 @@
                 for (let x = 0; x < map.width; x++) {
                     const tile = document.createElement('div');
                     tile.className = 'tile ' + map.tiles[y][x];
-                    if (x === char.x && y === char.y) {
-                        tile.className += ' player';
-                        tile.innerText = 'P';
-                    } else if (map.tiles[y][x] === 'wall') {
+
+                    let isPlayerHere = false;
+                    for (const [id, char] of Object.entries(players)) {
+                        if (x === char.x && y === char.y) {
+                            tile.className += ' player';
+                            tile.innerText = id === playerId ? 'P' : 'O'; // P for current player, O for others
+                            isPlayerHere = true;
+                            break;
+                        }
+                    }
+
+                    if (!isPlayerHere && map.tiles[y][x] === 'wall') {
                         tile.innerText = '#';
                     }
                     mapDiv.appendChild(tile);
                 }
             }
 
-            document.getElementById('character').innerText = `Character at (${char.x}, ${char.y}) - Health: ${char.health}`;
+            const currentChar = players[playerId];
+            if (currentChar) {
+                document.getElementById('character').innerText = `Character at (${currentChar.x}, ${currentChar.y}) - Health: ${currentChar.health}`;
+            }
         }
 
         async function move(direction) {
             try {
                 const response = await fetch('/move', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-player-id': playerId
+                    },
                     body: JSON.stringify({ direction })
                 });
 

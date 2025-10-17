@@ -10,9 +10,21 @@ pub async fn hello() -> Result<String> {
     Ok("Hello world!".to_string())
 }
 
-pub async fn get_character(data: web::Data<AppState>) -> Result<impl actix_web::Responder> {
+pub async fn get_character(
+    data: web::Data<AppState>,
+    req: actix_web::HttpRequest,
+) -> Result<impl actix_web::Responder> {
     let game_state = data.lock().map_err(|_| actix_web::error::ErrorInternalServerError("Lock failed"))?;
-    Ok(web::Json(game_state.character.clone()))
+    let player_id = req.headers()
+        .get("x-player-id")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("Missing x-player-id header"))?;
+
+    if let Some(character) = game_state.get_character(player_id) {
+        Ok(web::Json(character.clone()))
+    } else {
+        Err(actix_web::error::ErrorNotFound("Player not found"))
+    }
 }
 
 pub async fn get_map(data: web::Data<AppState>) -> Result<impl actix_web::Responder> {
@@ -28,11 +40,20 @@ pub struct MoveRequest {
 pub async fn move_character(
     data: web::Data<AppState>,
     req: web::Json<MoveRequest>,
+    http_req: actix_web::HttpRequest,
 ) -> Result<impl actix_web::Responder> {
     let mut game_state = data.lock().map_err(|_| actix_web::error::ErrorInternalServerError("Lock failed"))?;
+    let player_id = http_req.headers()
+        .get("x-player-id")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("Missing x-player-id header"))?;
 
-    if game_state.move_character(&req.direction) {
-        Ok(web::Json(game_state.character.clone()))
+    if game_state.move_character(player_id, &req.direction) {
+        if let Some(character) = game_state.get_character(player_id) {
+            Ok(web::Json(character.clone()))
+        } else {
+            Err(actix_web::error::ErrorNotFound("Player not found"))
+        }
     } else {
         Err(actix_web::error::ErrorBadRequest("Invalid move"))
     }
@@ -50,5 +71,6 @@ pub async fn websocket(
     data: web::Data<AppState>,
 ) -> Result<impl actix_web::Responder> {
     let game_state = data.get_ref().clone();
-    ws::start(GameWebSocket { game_state }, &req, stream)
+
+    ws::start(GameWebSocket { game_state, player_id: None }, &req, stream)
 }
